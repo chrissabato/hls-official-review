@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS Video Review</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- HLS.js CDN for HLS playback -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js"></script>
+    <style>
+        /* Custom styles for full-screen video container */
+        .full-screen-player {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.95);
+            z-index: 50;
+            display: none; /* Initially hidden */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        /* Style for the video element to fill the container */
+        #videoPlayer {
+            width: 100%;
+            max-height: calc(100vh - 80px); /* 80px buffer for controls */
+            object-fit: contain;
+            background-color: black;
+        }
+       
+        video::-webkit-media-controls-fullscreen-button { display: none;}
+    </style>
+</head>
+<body class="font-sans min-h-screen p-5 bg-gray-900 text-gray-100"> 
+    
+    <div class="max-w-2xl mx-auto bg-gray-800 p-8 rounded-xl ">
+        <h1 class="text-white mb-8 text-center text-3xl font-extrabold">HLS Video Review</h1>
+        
+        <div id="message" class="mt-5 p-3 bg-yellow-900 text-yellow-300 rounded-lg text-center hidden" style="display: none;"></div>
+
+        <form id="streamForm" class="space-y-6">
+            
+            <div class="space-y-2">
+                <label for="hlsFeedInput" class="block text-gray-300 font-bold text-lg">HLS Stream URL (.m3u8):</label>
+                <input type="text" id="hlsFeedInput" name="hlsFeedInput" 
+                       placeholder="e.g., https://example.com/stream/playlist.m3u8" 
+                       class="w-full p-3 border border-gray-600 rounded-lg text-base focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white shadow-inner">
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-4">
+                <button type="submit" id="playStreamBtn" class="sm:w-1/2 py-3 border border-transparent rounded-lg text-lg cursor-pointer transition-colors duration-300 bg-green-600 text-white hover:bg-green-700 font-bold shadow-lg flex items-center justify-center gap-2">
+                    <svg class="w-6 h-6" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24">
+                        <path fill-rule="evenodd" d="M8.6 5.2A1 1 0 0 0 7 6v12a1 1 0 0 0 1.6.8l8-6a1 1 0 0 0 0-1.6l-8-6Z" clip-rule="evenodd"/>
+                    </svg>
+                    Load & Play Stream
+                </button>
+                
+                <button type="button" id="playDemoBtn" class="sm:w-1/2 py-3 border border-transparent rounded-lg text-lg cursor-pointer transition-colors duration-300 bg-blue-500 text-white hover:bg-blue-600 font-bold shadow-lg flex items-center justify-center gap-2">
+                    <svg class="w-6 h-6" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Load Demo Feed
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <script src="video-player.js"></script>
+    <script>
+        // --- CONSTANTS ---
+        const DEMO_HLS_URL = 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8';
+        
+        // --- DOM Elements ---
+        const hlsFeedInput = document.getElementById('hlsFeedInput');
+        const playDemoBtn = document.getElementById('playDemoBtn');
+        const streamForm = document.getElementById('streamForm');
+        
+        let player;
+        
+        // Initialize player asynchronously
+        (async () => {
+            player = await initVideoPlayer();
+            
+            // Form Submission (Load & Play)
+            streamForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const url = hlsFeedInput.value.trim();
+                player.playVideo(url);
+            });
+
+            // Demo Button
+            playDemoBtn.addEventListener('click', () => {
+                hlsFeedInput.value = DEMO_HLS_URL;
+                player.playVideo(DEMO_HLS_URL);
+            });
+        })();
+    </script>
+
+</body>
+</html>
