@@ -93,8 +93,10 @@ class VideoPlayerManager {
                 this.gesture = null;
             }
         };
-        area.addEventListener('pointerup', endPointer);
-        area.addEventListener('pointercancel', endPointer);
+        // Listen on window: a finger lifted outside the zoom area (e.g. over the
+        // button bar) must still be removed, or the next pinch uses a stale point
+        window.addEventListener('pointerup', endPointer);
+        window.addEventListener('pointercancel', endPointer);
         
         // Trackpad pinch on desktop arrives as ctrl+wheel
         area.addEventListener('wheel', (e) => {
@@ -197,22 +199,60 @@ class VideoPlayerManager {
         const { width, height } = this.zoomArea.getBoundingClientRect();
         const z = this.zoom;
         
-        if (z.scale <= 1.001) {
+        if (!Number.isFinite(z.scale) || !Number.isFinite(z.x) || !Number.isFinite(z.y) ||
+            z.scale <= 1.001 || !width || !height) {
             z.scale = 1;
             z.x = 0;
             z.y = 0;
         } else {
-            // Don't let the video be dragged away from the edges
-            z.x = Math.min(0, Math.max(width - width * z.scale, z.x));
-            z.y = Math.min(0, Math.max(height - height * z.scale, z.y));
+            // Clamp to the visible picture, not the element: with object-fit
+            // contain the element includes black letterbox/pillarbox bars, and
+            // zooming into those makes the screen go black.
+            const c = this.getVideoContentRect(width, height);
+            z.x = this.clampAxis(z.x, z.scale, c.x, c.width, width);
+            z.y = this.clampAxis(z.y, z.scale, c.y, c.height, height);
         }
         
         this.videoPlayer.style.transform = z.scale === 1
             ? ''
             : `translate(${z.x}px, ${z.y}px) scale(${z.scale})`;
         
-        // Native controls would be scaled off-screen, so hide them while zoomed
-        this.videoPlayer.controls = z.scale === 1;
+        // Native controls would be scaled off-screen, so hide them while zoomed.
+        // Only touch the attribute when it changes; resetting it every frame
+        // makes some browsers rebuild the controls.
+        const showControls = z.scale === 1;
+        if (this.videoPlayer.controls !== showControls) {
+            this.videoPlayer.controls = showControls;
+        }
+    }
+    
+    /**
+     * Where the actual picture sits inside the video element (object-fit: contain).
+     */
+    getVideoContentRect(width, height) {
+        const vw = this.videoPlayer.videoWidth;
+        const vh = this.videoPlayer.videoHeight;
+        if (!vw || !vh) {
+            return { x: 0, y: 0, width, height };
+        }
+        const fit = Math.min(width / vw, height / vh);
+        const cw = vw * fit;
+        const ch = vh * fit;
+        return { x: (width - cw) / 2, y: (height - ch) / 2, width: cw, height: ch };
+    }
+    
+    /**
+     * Clamp one axis of the translation so the scaled picture covers the area
+     * when it is big enough, or stays centered when it is not.
+     */
+    clampAxis(t, scale, contentOffset, contentSize, areaSize) {
+        const scaledSize = contentSize * scale;
+        if (scaledSize <= areaSize) {
+            return (areaSize - scaledSize) / 2 - contentOffset * scale;
+        }
+        const max = -contentOffset * scale;
+        const min = areaSize - (contentOffset + contentSize) * scale;
+        return Math.min(max, Math.max(min, t));
     }
     
     resetZoom() {
