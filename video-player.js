@@ -431,7 +431,11 @@ class VideoPlayerManager {
         this.videoPlayer.addEventListener('loadeddata', () => this.updatePlayPauseButton());
         
         // Control button listeners
-        this.closeBtn.addEventListener('click', () => this.closeVideoPlayer());
+        this.closeBtn.addEventListener('click', () => {
+            if (confirm('Close the video player?')) {
+                this.closeVideoPlayer();
+            }
+        });
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
         this.toggleFullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
         this.goToLiveBtn.addEventListener('click', () => this.goToLive());
