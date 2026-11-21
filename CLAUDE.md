@@ -41,5 +41,4 @@ FloSports stream URLs contain time-limited HMAC tokens (`st`, `exp`, `acl`, `hma
 | `Space` | Play / Pause |
 | `←` | Rewind 5s |
 | `→` | Forward 5s |
-| `Escape` | Close player |
 

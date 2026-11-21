@@ -564,6 +564,9 @@ class VideoPlayerManager {
     
     closeVideoPlayer() {
         if (this.playerContainer.style.display === 'flex') {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
             this.playerContainer.style.display = 'none';
             this.resetZoom();
             this.videoPlayer.pause();
@@ -664,9 +667,7 @@ class VideoPlayerManager {
             return;
         }
         
-        if (e.key === 'Escape') {
-            this.closeVideoPlayer();
-        } else if (e.key === 'ArrowLeft') {
+        if (e.key === 'ArrowLeft') {
             this.rewindVideo(5);
         } else if (e.key === 'ArrowRight') {
             this.fastForwardVideo(5);
