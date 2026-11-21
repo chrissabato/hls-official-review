@@ -20,7 +20,7 @@ python3 -m http.server 8080
 
 ### Entry point
 
-- **`index.html`** — Single page. URL input, demo button, and the shared video player.
+- **`index.html`** — Single page. URL input, demo button, and the shared video player. A `?url=<stream>` query parameter opens the player directly; everything after `url=` is taken raw (decoded only if it starts with an encoded `https%3A`), so unencoded URLs containing `&` still work.
 
 ### Shared video player (three files)
 

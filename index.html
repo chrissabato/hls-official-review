@@ -96,7 +96,30 @@
                 hlsFeedInput.value = DEMO_HLS_URL;
                 player.playVideo(DEMO_HLS_URL);
             });
+
+            // Open the player directly from ?url=<stream>. Everything after
+            // "url=" is used, so stream URLs with their own query params
+            // (e.g. FloSports tokens) work whether or not they're encoded.
+            const urlParam = getStreamUrlParam();
+            if (urlParam) {
+                hlsFeedInput.value = urlParam;
+                player.playVideo(urlParam);
+            }
         })();
+
+        function getStreamUrlParam() {
+            const match = window.location.search.match(/[?&]url=(.*)$/);
+            if (!match || !match[1]) return null;
+            let value = match[1];
+            if (/^https?%3A/i.test(value)) {
+                try {
+                    value = decodeURIComponent(value);
+                } catch (e) {
+                    // Leave malformed encodings as-is
+                }
+            }
+            return value.trim();
+        }
     </script>
 
 </body>

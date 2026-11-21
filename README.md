@@ -12,6 +12,14 @@ npx serve .
 
 Paste an HLS stream URL and click **Load & Play Stream**, or click **Load Demo Feed** to try it with a sample stream.
 
+To open a stream directly, pass it in the `url` parameter:
+
+```
+index.html?url=https://example.com/stream/playlist.m3u8
+```
+
+Everything after `url=` is treated as the stream URL, so URLs with their own query parameters (like FloSports tokens) work without encoding. Encoded URLs (`https%3A%2F%2F...`) work too.
+
 ## Playback Controls
 
 | Control | Action |
