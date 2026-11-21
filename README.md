@@ -22,6 +22,9 @@ Paste an HLS stream URL and click **Load & Play Stream**, or click **Load Demo F
 | `Space` | Play / Pause |
 | `←` / `→` | Rewind / Forward 5s |
 | `Escape` | Close player |
+| Pinch (touch / trackpad) | Zoom the video only, 1x–5x; buttons stay fixed |
+| Drag while zoomed | Pan the video |
+| Double-tap while zoomed | Reset to 1x |
 
 ## FloSports Streams
 

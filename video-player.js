@@ -22,6 +22,7 @@ class VideoPlayerManager {
         this.rewindButtons = options.rewindButtons;
         this.forwardButtons = options.forwardButtons;
         this.speedButtons = options.speedButtons;
+        this.zoomArea = options.zoomArea;
         
         // Configuration
         this.enableKeyboardShortcuts = options.enableKeyboardShortcuts !== false;
@@ -31,6 +32,195 @@ class VideoPlayerManager {
     
     init() {
         this.attachEventListeners();
+        if (this.zoomArea) {
+            this.initZoom();
+        }
+    }
+    
+    /**
+     * Pinch-to-zoom and pan on the video only. The button bar is outside
+     * the zoom area, so it keeps its size and position.
+     */
+    initZoom() {
+        this.minZoom = 1;
+        this.maxZoom = 5;
+        this.zoom = { scale: 1, x: 0, y: 0 };
+        this.pointers = new Map();   // pointerId -> {x, y} in zoom-area coords
+        this.gesture = null;         // state captured at the start of a pinch/pan
+        this.lastTap = null;         // for double-tap-to-reset
+        
+        const area = this.zoomArea;
+        
+        // Ignore gestures that start on a button inside the area (e.g. close button)
+        const isControl = (e) => e.target.closest('button');
+        
+        area.addEventListener('pointerdown', (e) => {
+            if (isControl(e)) return;
+            this.pointers.set(e.pointerId, this.toAreaCoords(e));
+            
+            // Take over the gesture once it's a pinch, or a pan while zoomed in.
+            // At 1x with one finger, let taps reach the native video controls.
+            if (this.pointers.size >= 2 || this.zoom.scale > 1) {
+                e.preventDefault();
+                try { area.setPointerCapture(e.pointerId); } catch (_) {}
+                this.startGesture();
+            }
+        });
+        
+        area.addEventListener('pointermove', (e) => {
+            if (!this.pointers.has(e.pointerId)) return;
+            this.pointers.set(e.pointerId, this.toAreaCoords(e));
+            if (this.gesture) {
+                e.preventDefault();
+                this.updateGesture();
+            }
+        });
+        
+        const endPointer = (e) => {
+            if (!this.pointers.has(e.pointerId)) return;
+            const wasSingle = this.pointers.size === 1;
+            const moved = this.gesture && this.gesture.moved;
+            this.pointers.delete(e.pointerId);
+            
+            if (e.type === 'pointerup' && wasSingle && !moved) {
+                this.handleTap(e);
+            }
+            
+            // Re-anchor so lifting one finger of a pinch doesn't make the video jump
+            if (this.pointers.size > 0 && this.zoom.scale > 1) {
+                this.startGesture();
+            } else {
+                this.gesture = null;
+            }
+        };
+        area.addEventListener('pointerup', endPointer);
+        area.addEventListener('pointercancel', endPointer);
+        
+        // Trackpad pinch on desktop arrives as ctrl+wheel
+        area.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey) return;
+            e.preventDefault();
+            const p = this.toAreaCoords(e);
+            this.zoomAt(p, this.zoom.scale * Math.exp(-e.deltaY * 0.01));
+        }, { passive: false });
+        
+        // Safari fires its own gesture events for pinch; stop page zoom there too
+        ['gesturestart', 'gesturechange', 'gestureend'].forEach(type => {
+            this.playerContainer.addEventListener(type, (e) => e.preventDefault());
+        });
+        
+        // Keep the transform valid when the area changes size (fullscreen, rotation)
+        window.addEventListener('resize', () => this.applyZoom());
+    }
+    
+    toAreaCoords(e) {
+        const rect = this.zoomArea.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+    
+    getGestureCenterAndDistance() {
+        const pts = [...this.pointers.values()];
+        if (pts.length === 1) {
+            return { center: pts[0], distance: 0 };
+        }
+        const [a, b] = pts;
+        return {
+            center: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+            distance: Math.hypot(b.x - a.x, b.y - a.y)
+        };
+    }
+    
+    startGesture() {
+        const { center, distance } = this.getGestureCenterAndDistance();
+        this.gesture = {
+            startCenter: center,
+            startDistance: distance,
+            startScale: this.zoom.scale,
+            // Point in the unscaled video that sits under the gesture center
+            contentPoint: {
+                x: (center.x - this.zoom.x) / this.zoom.scale,
+                y: (center.y - this.zoom.y) / this.zoom.scale
+            },
+            moved: false
+        };
+    }
+    
+    updateGesture() {
+        const g = this.gesture;
+        const { center, distance } = this.getGestureCenterAndDistance();
+        
+        if (Math.hypot(center.x - g.startCenter.x, center.y - g.startCenter.y) > 5 ||
+            (g.startDistance && Math.abs(distance - g.startDistance) > 5)) {
+            g.moved = true;
+        }
+        
+        let scale = g.startScale;
+        if (this.pointers.size >= 2 && g.startDistance > 0) {
+            scale = g.startScale * (distance / g.startDistance);
+        }
+        scale = Math.min(this.maxZoom, Math.max(this.minZoom, scale));
+        
+        // Keep the same video point under the fingers
+        this.zoom.scale = scale;
+        this.zoom.x = center.x - g.contentPoint.x * scale;
+        this.zoom.y = center.y - g.contentPoint.y * scale;
+        this.applyZoom();
+    }
+    
+    zoomAt(point, newScale) {
+        newScale = Math.min(this.maxZoom, Math.max(this.minZoom, newScale));
+        const cx = (point.x - this.zoom.x) / this.zoom.scale;
+        const cy = (point.y - this.zoom.y) / this.zoom.scale;
+        this.zoom.scale = newScale;
+        this.zoom.x = point.x - cx * newScale;
+        this.zoom.y = point.y - cy * newScale;
+        this.applyZoom();
+    }
+    
+    handleTap(e) {
+        const now = Date.now();
+        const p = this.toAreaCoords(e);
+        const last = this.lastTap;
+        this.lastTap = { time: now, x: p.x, y: p.y };
+        
+        // Double-tap while zoomed resets to 1x
+        if (last && now - last.time < 300 && Math.hypot(p.x - last.x, p.y - last.y) < 40) {
+            this.lastTap = null;
+            if (this.zoom.scale > 1) {
+                this.resetZoom();
+            }
+        }
+    }
+    
+    applyZoom() {
+        if (!this.zoom) return;
+        const { width, height } = this.zoomArea.getBoundingClientRect();
+        const z = this.zoom;
+        
+        if (z.scale <= 1.001) {
+            z.scale = 1;
+            z.x = 0;
+            z.y = 0;
+        } else {
+            // Don't let the video be dragged away from the edges
+            z.x = Math.min(0, Math.max(width - width * z.scale, z.x));
+            z.y = Math.min(0, Math.max(height - height * z.scale, z.y));
+        }
+        
+        this.videoPlayer.style.transform = z.scale === 1
+            ? ''
+            : `translate(${z.x}px, ${z.y}px) scale(${z.scale})`;
+        
+        // Native controls would be scaled off-screen, so hide them while zoomed
+        this.videoPlayer.controls = z.scale === 1;
+    }
+    
+    resetZoom() {
+        if (!this.zoom) return;
+        this.zoom = { scale: 1, x: 0, y: 0 };
+        this.pointers.clear();
+        this.gesture = null;
+        this.applyZoom();
     }
     
     attachEventListeners() {
@@ -161,14 +351,16 @@ class VideoPlayerManager {
             this.showMessage('HLS playback not supported in this browser.', 'error');
         }
         
-        // Reset playback speed to normal
+        // Reset playback speed and zoom
         this.setPlaybackSpeed(1.0);
+        this.resetZoom();
         this.updatePlayPauseButton();
     }
     
     closeVideoPlayer() {
         if (this.playerContainer.style.display === 'flex') {
             this.playerContainer.style.display = 'none';
+            this.resetZoom();
             this.videoPlayer.pause();
             
             if (this.videoPlayer.hls) {
@@ -328,6 +520,7 @@ async function initVideoPlayer() {
         rewindButtons: document.querySelectorAll('.rewind-btn'),
         forwardButtons: document.querySelectorAll('.forward-btn'),
         speedButtons: document.querySelectorAll('.speed-btn'),
+        zoomArea: document.getElementById('videoZoomArea'),
         enableKeyboardShortcuts: true
     });
 }
