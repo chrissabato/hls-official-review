@@ -42,9 +42,12 @@ class VideoPlayerManager {
      * Pinch-to-zoom and pan on the video only. The button bar is outside
      * the zoom area, so it keeps its size and position.
      *
-     * The zoomed view is drawn onto a canvas laid over the video rather than
-     * CSS-scaling the <video> element. Scaling a hardware-decoded video layer
-     * several times past screen size makes some GPUs/browsers render it black.
+     * Never CSS-scale the <video> element: enlarging a hardware-decoded video
+     * layer past screen size renders black on some GPUs (seen on Windows Chrome).
+     *  - Chrome/Edge: crop with `object-view-box`, so the element stays screen
+     *    size and the video stays on its normal hardware path. Copying frames to
+     *    a canvas also renders black on those GPUs, so it isn't used there.
+     *  - Other browsers: draw the visible region onto a canvas over the video.
      */
     initZoom() {
         this.minZoom = 1;
@@ -55,6 +58,17 @@ class VideoPlayerManager {
         this.lastTap = null;         // for double-tap-to-reset
         this.zoomFrame = null;       // requestAnimationFrame id while zoomed
         this.zoomCtx = this.zoomCanvas.getContext('2d');
+        // Zoom badge: level, mini-map of the visible region, tap to reset
+        this.zoomIndicator = document.getElementById('zoomIndicator');
+        this.zoomLevel = document.getElementById('zoomLevel');
+        this.zoomMap = document.getElementById('zoomMap');
+        this.zoomMapView = document.getElementById('zoomMapView');
+        if (this.zoomIndicator) {
+            this.zoomIndicator.addEventListener('click', () => this.resetZoom());
+        }
+        
+        this.useViewBox = typeof CSS !== 'undefined' && CSS.supports &&
+            CSS.supports('object-view-box', 'inset(10% 10% 10% 10%)');
         
         const area = this.zoomArea;
         
@@ -229,6 +243,13 @@ class VideoPlayerManager {
             this.videoPlayer.controls = !zoomed;
         }
         
+        this.updateZoomIndicator(zoomed, width, height);
+        
+        if (this.useViewBox) {
+            this.applyViewBox(zoomed, width, height);
+            return;
+        }
+        
         if (zoomed) {
             this.zoomCanvas.style.display = 'block';
             this.drawZoomFrame();
@@ -272,9 +293,77 @@ class VideoPlayerManager {
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, bw, bh);
         
+        if (video.readyState < 2) return;
+        const v = this.getVisibleRegion(width, height);
+        if (!v) return;
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        try {
+            ctx.drawImage(video, v.sx, v.sy, v.sw, v.sh,
+                v.dx * dpr, v.dy * dpr, v.dw * dpr, v.dh * dpr);
+        } catch (err) {
+            console.error('Zoom draw failed:', err);
+        }
+    }
+    
+    /**
+     * Show the zoom level and which part of the frame is on screen.
+     */
+    updateZoomIndicator(zoomed, width, height) {
+        if (!this.zoomIndicator) return;
+        if (!zoomed) {
+            this.zoomIndicator.style.display = 'none';
+            return;
+        }
+        this.zoomIndicator.style.display = 'flex';
+        this.zoomLevel.textContent = `${this.zoom.scale.toFixed(1)}\u00d7`;
+        
+        const vw = this.videoPlayer.videoWidth;
+        const vh = this.videoPlayer.videoHeight;
+        const v = this.getVisibleRegion(width, height);
+        if (!v || !vw || !vh) {
+            this.zoomMap.style.display = 'none';
+            return;
+        }
+        // Mini-map matches the video's shape; the box is the visible region
+        this.zoomMap.style.display = 'block';
+        this.zoomMap.style.height = `${Math.round(96 * vh / vw)}px`;
+        const s = this.zoomMapView.style;
+        s.left = `${v.sx / vw * 100}%`;
+        s.top = `${v.sy / vh * 100}%`;
+        s.width = `${v.sw / vw * 100}%`;
+        s.height = `${v.sh / vh * 100}%`;
+    }
+    
+    /**
+     * Crop the video in place with object-view-box (Chrome/Edge).
+     */
+    applyViewBox(zoomed, width, height) {
+        const video = this.videoPlayer;
+        const v = zoomed ? this.getVisibleRegion(width, height) : null;
+        if (!v) {
+            video.style.objectViewBox = '';
+            return;
+        }
         const vw = video.videoWidth;
         const vh = video.videoHeight;
-        if (!vw || !vh || video.readyState < 2) return;
+        const pct = (n) => `${(n * 100).toFixed(4)}%`;
+        // inset(top right bottom left), as fractions of the video's own size.
+        // object-fit: contain then fits the crop into the element, which lands
+        // it exactly where getVisibleRegion says it should be on screen.
+        video.style.objectViewBox = `inset(${pct(v.sy / vh)} ${pct((vw - v.sx - v.sw) / vw)} ` +
+            `${pct((vh - v.sy - v.sh) / vh)} ${pct(v.sx / vw)})`;
+    }
+    
+    /**
+     * The part of the video that's visible at the current zoom: source rect in
+     * video pixels (sx/sy/sw/sh) and where it lands in area coords (dx/dy/dw/dh).
+     */
+    getVisibleRegion(width, height) {
+        const vw = this.videoPlayer.videoWidth;
+        const vh = this.videoPlayer.videoHeight;
+        if (!vw || !vh) return null;
         
         // Where the whole scaled picture sits, in area coordinates
         const z = this.zoom;
@@ -284,23 +373,18 @@ class VideoPlayerManager {
         const pw = z.scale * c.width;
         const ph = z.scale * c.height;
         
-        // Only draw the part that's on screen
+        // Clip to the screen
         const x0 = Math.max(0, px), x1 = Math.min(width, px + pw);
         const y0 = Math.max(0, py), y1 = Math.min(height, py + ph);
-        if (x1 <= x0 || y1 <= y0) return;
+        if (x1 <= x0 || y1 <= y0) return null;
         
-        const sx = (x0 - px) / pw * vw;
-        const sy = (y0 - py) / ph * vh;
-        const sw = (x1 - x0) / pw * vw;
-        const sh = (y1 - y0) / ph * vh;
-        
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        try {
-            ctx.drawImage(video, sx, sy, sw, sh, x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr);
-        } catch (err) {
-            console.error('Zoom draw failed:', err);
-        }
+        return {
+            sx: (x0 - px) / pw * vw,
+            sy: (y0 - py) / ph * vh,
+            sw: (x1 - x0) / pw * vw,
+            sh: (y1 - y0) / ph * vh,
+            dx: x0, dy: y0, dw: x1 - x0, dh: y1 - y0
+        };
     }
     
     /**

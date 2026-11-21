@@ -25,6 +25,7 @@ Paste an HLS stream URL and click **Load & Play Stream**, or click **Load Demo F
 | Pinch (touch / trackpad) | Zoom the video only, 1x–5x; buttons stay fixed |
 | Drag while zoomed | Pan the video |
 | Double-tap while zoomed | Reset to 1x |
+| Zoom badge (top-left) | Shows zoom level and which part of the frame is visible; tap to reset |
 
 ## FloSports Streams
 
