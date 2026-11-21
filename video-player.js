@@ -23,6 +23,7 @@ class VideoPlayerManager {
         this.forwardButtons = options.forwardButtons;
         this.speedButtons = options.speedButtons;
         this.zoomArea = options.zoomArea;
+        this.zoomCanvas = options.zoomCanvas;
         
         // Configuration
         this.enableKeyboardShortcuts = options.enableKeyboardShortcuts !== false;
@@ -32,7 +33,7 @@ class VideoPlayerManager {
     
     init() {
         this.attachEventListeners();
-        if (this.zoomArea) {
+        if (this.zoomArea && this.zoomCanvas) {
             this.initZoom();
         }
     }
@@ -40,6 +41,10 @@ class VideoPlayerManager {
     /**
      * Pinch-to-zoom and pan on the video only. The button bar is outside
      * the zoom area, so it keeps its size and position.
+     *
+     * The zoomed view is drawn onto a canvas laid over the video rather than
+     * CSS-scaling the <video> element. Scaling a hardware-decoded video layer
+     * several times past screen size makes some GPUs/browsers render it black.
      */
     initZoom() {
         this.minZoom = 1;
@@ -48,6 +53,8 @@ class VideoPlayerManager {
         this.pointers = new Map();   // pointerId -> {x, y} in zoom-area coords
         this.gesture = null;         // state captured at the start of a pinch/pan
         this.lastTap = null;         // for double-tap-to-reset
+        this.zoomFrame = null;       // requestAnimationFrame id while zoomed
+        this.zoomCtx = this.zoomCanvas.getContext('2d');
         
         const area = this.zoomArea;
         
@@ -111,7 +118,7 @@ class VideoPlayerManager {
             this.playerContainer.addEventListener(type, (e) => e.preventDefault());
         });
         
-        // Keep the transform valid when the area changes size (fullscreen, rotation)
+        // Keep the view valid when the area changes size (fullscreen, rotation)
         window.addEventListener('resize', () => this.applyZoom());
     }
     
@@ -213,16 +220,86 @@ class VideoPlayerManager {
             z.y = this.clampAxis(z.y, z.scale, c.y, c.height, height);
         }
         
-        this.videoPlayer.style.transform = z.scale === 1
-            ? ''
-            : `translate(${z.x}px, ${z.y}px) scale(${z.scale})`;
+        const zoomed = z.scale > 1;
         
-        // Native controls would be scaled off-screen, so hide them while zoomed.
+        // The canvas covers the native controls while zoomed, so hide them.
         // Only touch the attribute when it changes; resetting it every frame
         // makes some browsers rebuild the controls.
-        const showControls = z.scale === 1;
-        if (this.videoPlayer.controls !== showControls) {
-            this.videoPlayer.controls = showControls;
+        if (this.videoPlayer.controls === zoomed) {
+            this.videoPlayer.controls = !zoomed;
+        }
+        
+        if (zoomed) {
+            this.zoomCanvas.style.display = 'block';
+            this.drawZoomFrame();
+            if (this.zoomFrame === null) {
+                // Redraw every frame while zoomed so playing video stays live
+                const loop = () => {
+                    this.drawZoomFrame();
+                    this.zoomFrame = requestAnimationFrame(loop);
+                };
+                this.zoomFrame = requestAnimationFrame(loop);
+            }
+        } else {
+            if (this.zoomFrame !== null) {
+                cancelAnimationFrame(this.zoomFrame);
+                this.zoomFrame = null;
+            }
+            this.zoomCanvas.style.display = 'none';
+        }
+    }
+    
+    /**
+     * Draw the visible part of the zoomed picture onto the canvas.
+     */
+    drawZoomFrame() {
+        const canvas = this.zoomCanvas;
+        const ctx = this.zoomCtx;
+        const video = this.videoPlayer;
+        const { width, height } = this.zoomArea.getBoundingClientRect();
+        if (!width || !height) return;
+        
+        // Match the canvas backing store to the screen for a sharp image
+        const dpr = window.devicePixelRatio || 1;
+        const bw = Math.round(width * dpr);
+        const bh = Math.round(height * dpr);
+        if (canvas.width !== bw || canvas.height !== bh) {
+            canvas.width = bw;
+            canvas.height = bh;
+        }
+        
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, bw, bh);
+        
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh || video.readyState < 2) return;
+        
+        // Where the whole scaled picture sits, in area coordinates
+        const z = this.zoom;
+        const c = this.getVideoContentRect(width, height);
+        const px = z.x + z.scale * c.x;
+        const py = z.y + z.scale * c.y;
+        const pw = z.scale * c.width;
+        const ph = z.scale * c.height;
+        
+        // Only draw the part that's on screen
+        const x0 = Math.max(0, px), x1 = Math.min(width, px + pw);
+        const y0 = Math.max(0, py), y1 = Math.min(height, py + ph);
+        if (x1 <= x0 || y1 <= y0) return;
+        
+        const sx = (x0 - px) / pw * vw;
+        const sy = (y0 - py) / ph * vh;
+        const sw = (x1 - x0) / pw * vw;
+        const sh = (y1 - y0) / ph * vh;
+        
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        try {
+            ctx.drawImage(video, sx, sy, sw, sh, x0 * dpr, y0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr);
+        } catch (err) {
+            console.error('Zoom draw failed:', err);
         }
     }
     
@@ -561,6 +638,7 @@ async function initVideoPlayer() {
         forwardButtons: document.querySelectorAll('.forward-btn'),
         speedButtons: document.querySelectorAll('.speed-btn'),
         zoomArea: document.getElementById('videoZoomArea'),
+        zoomCanvas: document.getElementById('zoomCanvas'),
         enableKeyboardShortcuts: true
     });
 }
