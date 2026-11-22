@@ -136,4 +136,14 @@
             </button>
         </div>
     </div>
+    <div id="closeConfirm" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-70" style="display: none; z-index: 60;" role="dialog" aria-modal="true" aria-labelledby="closeConfirmTitle">
+        <div class="bg-gray-800 text-white rounded-lg shadow-xl p-6 mx-4 w-full max-w-sm border border-gray-600">
+            <h2 id="closeConfirmTitle" class="text-xl font-semibold mb-2">Close the video player?</h2>
+            <p class="text-gray-300 mb-6">Playback will stop and you'll return to the stream selection.</p>
+            <div class="flex justify-end gap-3">
+                <button type="button" id="closeConfirmCancel" class="py-3 px-5 rounded-md text-base font-semibold bg-gray-600 hover:bg-gray-700 text-white">Cancel</button>
+                <button type="button" id="closeConfirmOk" class="py-3 px-5 rounded-md text-base font-semibold bg-red-600 hover:bg-red-700 text-white">Close player</button>
+            </div>
+        </div>
+    </div>
 </div>

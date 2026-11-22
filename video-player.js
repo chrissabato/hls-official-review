@@ -431,11 +431,8 @@ class VideoPlayerManager {
         this.videoPlayer.addEventListener('loadeddata', () => this.updatePlayPauseButton());
         
         // Control button listeners
-        this.closeBtn.addEventListener('click', () => {
-            if (confirm('Close the video player?')) {
-                this.closeVideoPlayer();
-            }
-        });
+        this.closeBtn.addEventListener('click', () => this.showCloseConfirm());
+        this.attachCloseConfirmListeners();
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
         this.toggleFullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
         this.goToLiveBtn.addEventListener('click', () => this.goToLive());
@@ -661,9 +658,47 @@ class VideoPlayerManager {
         });
     }
     
+    // A custom dialog inside #playerContainer, so it stays visible in fullscreen.
+    // (Native confirm() forces the browser out of fullscreen.)
+    attachCloseConfirmListeners() {
+        this.closeConfirm = this.playerContainer.querySelector('#closeConfirm');
+        if (!this.closeConfirm) return;
+        this.closeConfirm.querySelector('#closeConfirmCancel').addEventListener('click', () => this.hideCloseConfirm());
+        this.closeConfirm.querySelector('#closeConfirmOk').addEventListener('click', () => {
+            this.hideCloseConfirm();
+            this.closeVideoPlayer();
+        });
+        // Clicking the dimmed backdrop cancels
+        this.closeConfirm.addEventListener('click', (e) => {
+            if (e.target === this.closeConfirm) this.hideCloseConfirm();
+        });
+        this.closeConfirm.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.hideCloseConfirm();
+        });
+    }
+
+    isCloseConfirmOpen() {
+        return !!this.closeConfirm && this.closeConfirm.style.display !== 'none';
+    }
+
+    showCloseConfirm() {
+        if (!this.closeConfirm) {
+            this.closeVideoPlayer();
+            return;
+        }
+        this.closeConfirm.style.display = 'flex';
+        this.closeConfirm.querySelector('#closeConfirmCancel').focus();
+    }
+
+    hideCloseConfirm() {
+        if (!this.closeConfirm) return;
+        this.closeConfirm.style.display = 'none';
+        this.closeBtn.focus();
+    }
+
     handleKeyPress(e) {
-        // Only handle keys when player is visible
-        if (this.playerContainer.style.display !== 'flex') {
+        // Only handle keys when player is visible and no dialog is open
+        if (this.playerContainer.style.display !== 'flex' || this.isCloseConfirmOpen()) {
             return;
         }
         
